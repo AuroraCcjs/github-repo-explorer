@@ -29,7 +29,7 @@ ${repoData.issues || 'None found'}
 
 ## Your Role
 
-You MUST organize your responses around these 5 topics. Always be thorough and specific, referencing actual files and code from the repo data above:
+When the user asks broad questions about the repository (e.g., "tell me about this project" or "how do I contribute?"), organize your responses around these 5 topics. For specific, narrow questions, answer directly without covering all 5 topics: Always be thorough and specific, referencing actual files and code from the repo data above:
 
 1. **Project Goals & Architecture** — Explain what this project does, its target users, the tech stack, and the high-level architecture. Reference the directory structure and README.
 2. **Key Modules & Core Code** — Identify the most important directories/files. Explain what each key module does and how they relate. Point out interesting code patterns.
@@ -114,9 +114,11 @@ async function fetchRepoData(owner, repo, githubToken) {
       ).join('\n')
     : '';
 
-  const issuesList = issuesData.map((issue) =>
-    `#${issue.number} ${issue.title} [${issue.labels.map(l => l.name).join(', ')}]`
-  ).join('\n');
+  const issuesList = (issuesData && issuesData.length > 0)
+    ? issuesData.map((issue) =>
+        `#${issue.number} ${issue.title} [${issue.labels.map(l => l.name).join(', ')}]`
+      ).join('\n')
+    : '';
 
   return {
     owner,
@@ -174,6 +176,14 @@ export default {
           });
         }
 
+        // Validate question if provided
+        if (question !== undefined && (typeof question !== 'string' || question.trim() === '')) {
+          return new Response(JSON.stringify({ error: 'question must be a non-empty string' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+          });
+        }
+
         // Parse owner/repo from GitHub URL
         const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+?)(?:\.git)?$/);
         if (!match) {
@@ -202,6 +212,7 @@ export default {
 
         // Call Claude API with streaming
         const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+          signal: request.signal,
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -219,7 +230,8 @@ export default {
 
         if (!claudeRes.ok) {
           const errText = await claudeRes.text();
-          throw new Error(`Claude API error: ${claudeRes.status} ${errText}`);
+          console.error(`Claude API error: ${claudeRes.status} ${errText}`);
+          throw new Error('Claude API request failed');
         }
 
         // Stream Claude's response directly to the client as SSE
