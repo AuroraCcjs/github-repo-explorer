@@ -24,7 +24,7 @@ const errorBannerClose = document.getElementById('errorBannerClose');
 // --- Worker URL Detection ---
 // Auto-detect: if running on GitHub Pages, use the production Worker URL.
 // For local dev, keep localhost:8787.
-const WORKER_PROD_URL = 'https://github-repo-explorer-85zyca40v-auroraccjs-projects.vercel.app';
+const WORKER_PROD_URL = 'https://meek-croissant-2af34c.netlify.app';
 const currentHostname = window.location.hostname;
 if (currentHostname.includes('github.io') || !currentHostname.includes('localhost')) {
   setWorkerUrl(WORKER_PROD_URL);
