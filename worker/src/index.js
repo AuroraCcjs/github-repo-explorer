@@ -2,6 +2,12 @@
  * Fetch repository metadata from GitHub API.
  * Returns an object with owner, repo, metadata, readme, directory tree, and issues.
  */
+async function settledJson(result, fallback = null) {
+  return (result.status === 'fulfilled' && result.value.ok)
+    ? await result.value.json()
+    : fallback;
+}
+
 async function fetchRepoData(owner, repo, githubToken) {
   const headers = {
     'Accept': 'application/vnd.github.v3+json',
@@ -21,20 +27,23 @@ async function fetchRepoData(owner, repo, githubToken) {
     fetch(`${baseUrl}/issues?labels=good-first-issue&state=open&per_page=5`, { headers }),
   ]);
 
-  // Parse responses, gracefully handle failures
-  const repoData = repoRes.status === 'fulfilled' && repoRes.value.ok
-    ? await repoRes.value.json() : null;
-  const readmeData = readmeRes.status === 'fulfilled' && readmeRes.value.ok
-    ? await readmeRes.value.json() : null;
-  const contentsData = contentsRes.status === 'fulfilled' && contentsRes.value.ok
-    ? await contentsRes.value.json() : [];
-  const issuesData = issuesRes.status === 'fulfilled' && issuesRes.value.ok
-    ? await issuesRes.value.json() : [];
+  // Parse responses, gracefully handle failures, and collect errors
+  const errors = [];
+  const repoData = await settledJson(repoRes, null);
+  if (!repoData) errors.push('repo metadata fetch failed');
+  const readmeData = await settledJson(readmeRes, null);
+  if (!readmeData) errors.push('README fetch failed');
+  const contentsData = await settledJson(contentsRes, []);
+  if (!Array.isArray(contentsData) || contentsData.length === 0) errors.push('contents fetch failed or empty');
+  const issuesData = await settledJson(issuesRes, []);
+  if (!Array.isArray(issuesData) || issuesData.length === 0) errors.push('issues fetch failed or empty');
 
-  // Decode base64 README content
+  // Decode base64 README content with proper UTF-8 handling
   let readmeText = '';
   if (readmeData && readmeData.content) {
-    readmeText = atob(readmeData.content.replace(/\n/g, ''));
+    const binaryString = atob(readmeData.content.replace(/\n/g, ''));
+    const bytes = Uint8Array.from(binaryString, c => c.charCodeAt(0));
+    readmeText = new TextDecoder('utf-8').decode(bytes);
     // Truncate README to avoid overwhelming the prompt
     if (readmeText.length > 4000) {
       readmeText = readmeText.slice(0, 4000) + '\n\n... (truncated)';
@@ -47,7 +56,7 @@ async function fetchRepoData(owner, repo, githubToken) {
     : '';
 
   // Format issues into a readable list
-  const issuesList = issuesData.map((issue, i) =>
+  const issuesList = issuesData.map((issue) =>
     `#${issue.number} ${issue.title} [${issue.labels.map(l => l.name).join(', ')}]`
   ).join('\n');
 
@@ -68,6 +77,7 @@ async function fetchRepoData(owner, repo, githubToken) {
     readme: readmeText,
     dirTree,
     issues: issuesList,
+    errors: errors.length > 0 ? errors : undefined,
   };
 }
 
@@ -95,7 +105,15 @@ export default {
     if (url.pathname === '/api/chat' && request.method === 'POST') {
       try {
         const body = await request.json();
-        const { repoUrl, history, question } = body;
+        const { repoUrl } = body;
+
+        // Validate repoUrl
+        if (!repoUrl || typeof repoUrl !== 'string') {
+          return new Response(JSON.stringify({ error: 'repoUrl is required' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+          });
+        }
 
         // Parse owner/repo from GitHub URL
         const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+?)(?:\.git)?$/);
