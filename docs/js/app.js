@@ -24,7 +24,7 @@ const errorBannerClose = document.getElementById('errorBannerClose');
 // --- Worker URL Detection ---
 // Auto-detect: if running on GitHub Pages, use the production Worker URL.
 // For local dev, keep localhost:8787.
-const WORKER_PROD_URL = 'https://github-repo-explorer.REPLACE_ME.workers.dev';
+const WORKER_PROD_URL = 'https://github-repo-explorer.3424966659.workers.dev';
 const currentHostname = window.location.hostname;
 if (currentHostname.includes('github.io') || !currentHostname.includes('localhost')) {
   setWorkerUrl(WORKER_PROD_URL);
