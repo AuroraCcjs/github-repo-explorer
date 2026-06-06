@@ -1,6 +1,6 @@
 node_modules/
 .env
-docs/
+docs/superpowers/
 .wrangler/
 .DS_Store
 Thumbs.db
