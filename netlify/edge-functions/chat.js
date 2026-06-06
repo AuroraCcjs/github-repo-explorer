@@ -179,7 +179,7 @@ export default async function handler(request) {
       });
     }
 
-    if (question !== undefined && (typeof question !== 'string' || question.trim() === '')) {
+    if (question != null && (typeof question !== 'string' || question.trim() === '')) {
       return new Response(JSON.stringify({ error: 'question must be a non-empty string' }), {
         status: 400,
         headers: {
