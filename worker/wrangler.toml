@@ -1,0 +1,12 @@
+name = "github-repo-explorer"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[[dependencies]]
+# No external dependencies — using built-in fetch API
+
+[vars]
+# Non-secret vars can go here
+
+[env.production]
+# Production-specific config
