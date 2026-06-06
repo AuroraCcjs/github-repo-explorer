@@ -1,6 +1,56 @@
 /**
- * Fetch repository metadata from GitHub API.
- * Returns an object with owner, repo, metadata, readme, directory tree, and issues.
+ * Build the system prompt with injected repository data.
+ */
+function buildSystemPrompt(repoData) {
+  const meta = repoData.metadata || {};
+  return `You are a friendly open-source navigator assistant. Your goal is to help a developer understand and contribute to a GitHub repository.
+
+## Repository: ${repoData.owner}/${repoData.repo}
+
+### Basic Info
+- **Name:** ${meta.name || repoData.owner + '/' + repoData.repo}
+- **Description:** ${meta.description || 'N/A'}
+- **Language:** ${meta.language || 'N/A'}
+- **Stars:** ${meta.stars || 0}
+- **Forks:** ${meta.forks || 0}
+- **Topics:** ${meta.topics || 'N/A'}
+- **License:** ${meta.license || 'N/A'}
+- **Default Branch:** ${meta.default_branch || 'main'}
+- **Open Issues:** ${meta.open_issues || 0}
+
+### Directory Structure (root level)
+${repoData.dirTree || 'Not available'}
+
+### README
+${repoData.readme || 'Not available'}
+
+### Good First Issues
+${repoData.issues || 'None found'}
+
+## Your Role
+
+You MUST organize your responses around these 5 topics. Always be thorough and specific, referencing actual files and code from the repo data above:
+
+1. **Project Goals & Architecture** — Explain what this project does, its target users, the tech stack, and the high-level architecture. Reference the directory structure and README.
+2. **Key Modules & Core Code** — Identify the most important directories/files. Explain what each key module does and how they relate. Point out interesting code patterns.
+3. **Development Workflow & Code Standards** — Based on the repo structure, infer the dev workflow: how to set up, how to build, how to test, commit conventions, PR process.
+4. **Entry-Level Contribution Tasks** — Highlight good first issues, suggest beginner-friendly areas of the codebase, estimate difficulty levels.
+5. **Learning Path** — Provide a step-by-step guide for new contributors: what to learn first, which files to read in order, which documentation to consult.
+
+## Formatting Rules
+- Use structured Markdown: headings (##, ###), tables, lists, code blocks
+- Be specific — reference actual file paths and function names from the repo
+- After each response, suggest 2-3 follow-up questions the user might want to ask
+- Keep a friendly, encouraging tone — you're helping a newcomer
+
+## Important
+- If you don't know something for certain, say so honestly
+- Guide the user to explore deeper — don't dump everything at once
+- Focus on what's most important first, allow follow-up questions`;
+}
+
+/**
+ * Parse a settled Promise result, returning parsed JSON or a fallback value.
  */
 async function settledJson(result, fallback = null) {
   return (result.status === 'fulfilled' && result.value.ok)
@@ -8,6 +58,9 @@ async function settledJson(result, fallback = null) {
     : fallback;
 }
 
+/**
+ * Fetch repository metadata from GitHub API.
+ */
 async function fetchRepoData(owner, repo, githubToken) {
   const headers = {
     'Accept': 'application/vnd.github.v3+json',
@@ -19,7 +72,6 @@ async function fetchRepoData(owner, repo, githubToken) {
 
   const baseUrl = `https://api.github.com/repos/${owner}/${repo}`;
 
-  // Fetch repo metadata, README, root contents, and good-first-issues in parallel
   const [repoRes, readmeRes, contentsRes, issuesRes] = await Promise.allSettled([
     fetch(baseUrl, { headers }),
     fetch(`${baseUrl}/readme`, { headers }),
@@ -27,35 +79,41 @@ async function fetchRepoData(owner, repo, githubToken) {
     fetch(`${baseUrl}/issues?labels=good-first-issue&state=open&per_page=5`, { headers }),
   ]);
 
-  // Parse responses, gracefully handle failures, and collect errors
   const errors = [];
-  const repoData = await settledJson(repoRes, null);
-  if (!repoData) errors.push('repo metadata fetch failed');
-  const readmeData = await settledJson(readmeRes, null);
-  if (!readmeData) errors.push('README fetch failed');
-  const contentsData = await settledJson(contentsRes, []);
-  if (!Array.isArray(contentsData) || contentsData.length === 0) errors.push('contents fetch failed or empty');
-  const issuesData = await settledJson(issuesRes, []);
-  if (!Array.isArray(issuesData) || issuesData.length === 0) errors.push('issues fetch failed or empty');
+  [
+    { res: repoRes, label: 'repo metadata' },
+    { res: readmeRes, label: 'README' },
+    { res: contentsRes, label: 'directory contents' },
+    { res: issuesRes, label: 'issues' },
+  ].forEach(({ res, label }) => {
+    if (res.status === 'rejected') {
+      errors.push(`Failed to fetch ${label}: ${res.reason?.message || res.reason}`);
+    } else if (!res.value.ok) {
+      errors.push(`GitHub API error for ${label}: ${res.value.status} ${res.value.statusText}`);
+    }
+  });
 
-  // Decode base64 README content with proper UTF-8 handling
+  const repoData = await settledJson(repoRes);
+  const readmeData = await settledJson(readmeRes);
+  const contentsData = await settledJson(contentsRes, []);
+  const issuesData = await settledJson(issuesRes, []);
+
   let readmeText = '';
   if (readmeData && readmeData.content) {
     const binaryString = atob(readmeData.content.replace(/\n/g, ''));
     const bytes = Uint8Array.from(binaryString, c => c.charCodeAt(0));
     readmeText = new TextDecoder('utf-8').decode(bytes);
-    // Truncate README to avoid overwhelming the prompt
     if (readmeText.length > 4000) {
       readmeText = readmeText.slice(0, 4000) + '\n\n... (truncated)';
     }
   }
 
-  // Build a tree-like summary of directory structure
   const dirTree = Array.isArray(contentsData)
-    ? contentsData.map(item => `${item.type === 'dir' ? '📁' : '📄'} ${item.name}`).join('\n')
+    ? contentsData.slice(0, 30).map(item =>
+        `${item.type === 'dir' ? '📁' : '📄'} ${item.name}`
+      ).join('\n')
     : '';
 
-  // Format issues into a readable list
   const issuesList = issuesData.map((issue) =>
     `#${issue.number} ${issue.title} [${issue.labels.map(l => l.name).join(', ')}]`
   ).join('\n');
@@ -106,6 +164,7 @@ export default {
       try {
         const body = await request.json();
         const { repoUrl } = body;
+        let { history, question } = body;
 
         // Validate repoUrl
         if (!repoUrl || typeof repoUrl !== 'string') {
@@ -126,15 +185,52 @@ export default {
         const owner = match[1];
         const repo = match[2].replace(/\/$/, '');
 
+        // Fetch repository data
         const repoData = await fetchRepoData(owner, repo, env.GITHUB_TOKEN);
 
-        return new Response(JSON.stringify({
-          status: 'repo_fetched',
-          repoData,
-          message: 'Repository data fetched successfully. Claude integration pending.',
-        }), {
+        // Build the system prompt
+        const systemPrompt = buildSystemPrompt(repoData);
+
+        // Build conversation messages for Claude
+        let messages = [{ role: 'user', content: question || `Please analyze the repository ${owner}/${repo} and help me understand it.` }];
+
+        // Include conversation history if provided (last 10 messages max for context)
+        if (history && history.length > 0) {
+          const recentHistory = history.slice(-10);
+          messages = [...recentHistory, ...messages];
+        }
+
+        // Call Claude API with streaming
+        const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': env.ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-6',
+            max_tokens: 4096,
+            system: systemPrompt,
+            messages: messages,
+            stream: true,
+          }),
+        });
+
+        if (!claudeRes.ok) {
+          const errText = await claudeRes.text();
+          throw new Error(`Claude API error: ${claudeRes.status} ${errText}`);
+        }
+
+        // Stream Claude's response directly to the client as SSE
+        return new Response(claudeRes.body, {
           status: 200,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders },
+          headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            ...corsHeaders,
+          },
         });
       } catch (err) {
         return new Response(JSON.stringify({ error: err.message }), {
