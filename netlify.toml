@@ -1,6 +1,6 @@
 [build]
   command = ""
-  publish = ""
+  publish = "docs"
 
 [[edge_functions]]
   function = "health"
