@@ -80,7 +80,7 @@ export function sendChatMessage({ repoUrl, history, question, onChunk, onDone, o
 
         const data = trimmed.slice(6); // Remove "data: " prefix
 
-        // Anthropic stream end signal
+        // OpenAI/DeepSeek stream end signal
         if (data === '[DONE]') {
           onDone();
           return;
@@ -89,20 +89,16 @@ export function sendChatMessage({ repoUrl, history, question, onChunk, onDone, o
         try {
           const parsed = JSON.parse(data);
 
-          // Anthropic SSE format — extract text delta
-          if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
-            onChunk(parsed.delta.text);
+          // OpenAI-compatible SSE format — extract text from choices[0].delta.content
+          const delta = parsed.choices?.[0]?.delta;
+          if (delta?.content) {
+            onChunk(delta.content);
           }
-          // Handle other event types that contain text
-          else if (parsed.type === 'content_block_start' && parsed.content_block?.text) {
-            onChunk(parsed.content_block.text);
-          }
-          // Message stop event
-          else if (parsed.type === 'message_stop') {
+          // finish_reason indicates stream completion
+          if (parsed.choices?.[0]?.finish_reason) {
             onDone();
             return;
           }
-          // Ignore other event types (ping, message_start, etc.)
         } catch (e) {
           // Skip unparseable chunks
         }

@@ -201,41 +201,43 @@ export default {
         // Build the system prompt
         const systemPrompt = buildSystemPrompt(repoData);
 
-        // Build conversation messages for Claude
-        let messages = [{ role: 'user', content: question || `Please analyze the repository ${owner}/${repo} and help me understand it.` }];
+        // Build conversation messages for DeepSeek
+        // System prompt goes as first message in OpenAI-compatible format
+        let messages = [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: question || `Please analyze the repository ${owner}/${repo} and help me understand it.` },
+        ];
 
         // Include conversation history if provided (last 10 messages max for context)
         if (history && history.length > 0) {
           const recentHistory = history.slice(-10);
-          messages = [...recentHistory, ...messages];
+          messages = [messages[0], ...recentHistory, ...messages.slice(1)];
         }
 
-        // Call Claude API with streaming
-        const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+        // Call DeepSeek API with streaming (OpenAI-compatible format)
+        const aiRes = await fetch('https://api.deepseek.com/v1/chat/completions', {
           signal: request.signal,
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-api-key': env.ANTHROPIC_API_KEY,
-            'anthropic-version': '2023-06-01',
+            'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}`,
           },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-6',
+            model: 'deepseek-chat',
             max_tokens: 4096,
-            system: systemPrompt,
             messages: messages,
             stream: true,
           }),
         });
 
-        if (!claudeRes.ok) {
-          const errText = await claudeRes.text();
-          console.error(`Claude API error: ${claudeRes.status} ${errText}`);
-          throw new Error('Claude API request failed');
+        if (!aiRes.ok) {
+          const errText = await aiRes.text();
+          console.error(`DeepSeek API error: ${aiRes.status} ${errText}`);
+          throw new Error('AI API request failed');
         }
 
-        // Stream Claude's response directly to the client as SSE
-        return new Response(claudeRes.body, {
+        // Stream DeepSeek's response directly to the client as SSE
+        return new Response(aiRes.body, {
           status: 200,
           headers: {
             'Content-Type': 'text/event-stream',
