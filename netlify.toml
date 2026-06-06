@@ -1,0 +1,11 @@
+[build]
+  command = ""
+  publish = ""
+
+[[edge_functions]]
+  function = "health"
+  path = "/api/health"
+
+[[edge_functions]]
+  function = "chat"
+  path = "/api/chat"
