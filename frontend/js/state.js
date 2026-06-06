@@ -1,6 +1,6 @@
 // state.js — Chat state management with localStorage persistence
 
-const STORAGE_KEY = 'github-repo-explorer-chat';
+export const STORAGE_KEY = 'github-repo-explorer-chat';
 
 /**
  * Create initial state.
@@ -120,7 +120,7 @@ export function isGithubUrl(text) {
  * @returns {{ owner: string, repo: string }|null}
  */
 export function parseRepoUrl(url) {
-  const match = url.match(/github\.com\/([^\/]+)\/([^\/]+?)(?:\.git)?$/);
+  const match = url.match(/github\.com\/([^\/]+)\/([^\/]+?)(?:\.git)?\/?$/);
   if (!match) return null;
   return {
     owner: match[1],
